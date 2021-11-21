@@ -14,7 +14,6 @@ are guaranteed to be represented by 0 and 1.
 Field classes gf are expected to expose:
 - gf.BITS: field order is (2**gf.BITS)
 - gf.BASE: base field, or None
-- gf.BASIS: an element of the field such that {BASIS^i for i=0..gf.BITS-1} is a basis.
 - gf.PRIM: a generator for the multiplicative group, or None if not known
 - gf.mul(a,b): multiply a and b
 - gf.sqr(v): square v
@@ -472,6 +471,7 @@ def gf_minpoly(gf, v):
 
 def gf_isprimitive(gf, v):
     """Determine whether v is a primitive element of field gf."""
+    if gf.PRIM is not None and v == gf.PRIM: return True
     for factor, _ in POW2MINUS1_FACTORS[gf.BITS]:
         if gf_pow(gf, v, ((1 << gf.BITS) - 1) // factor) == 1:
             return False
@@ -480,13 +480,13 @@ def gf_isprimitive(gf, v):
 def gf_primitive(gf):
     """Find a primitive element of field gf."""
     if gf.PRIM is None:
-        if gf_isprimitive(gf, gf.BASIS):
-            gf.PRIM = gf.BASIS
-        else:
-            for i in range(2, 1 << gf.BITS):
-                if gf_isprimitive(gf, i):
-                    gf.PRIM = i
-                    break
+        start = 2
+        if gf.BASE:
+            start = (1 << gf.BASE.BITS) + 1
+        for i in range(start, 1 << gf.BITS):
+            if gf_isprimitive(gf, i):
+                gf.PRIM = i
+                break
     return gf.PRIM
 
 def poly_tracemod(gf, p, v):
@@ -515,6 +515,7 @@ def poly_findroots(gf, p):
         return None
 
     ret = []
+    prim = gf_primitive(gf)
     def rec_split(p, v):
         assert poly_degree(gf, p) > 0 and poly_ismonic(gf, p)
         if poly_degree(gf, p) == 1:
@@ -522,7 +523,7 @@ def poly_findroots(gf, p):
             return
         while True:
             trace = poly_tracemod(gf, p, v)
-            v = gf.mul(v, gf.BASIS)
+            v = gf.mul(v, prim)
             gcd = poly_gcd(gf, trace, p)
             if poly_degree(gf, gcd) < poly_degree(gf, p) and poly_degree(gf, gcd) > 0:
                 break
@@ -550,7 +551,6 @@ class GF2:
     def __init__(self):
         self.BITS = 1
         self.BASE = None
-        self.BASIS = 1
         self.PRIM = 1
         pass
 
@@ -579,7 +579,6 @@ class GF2Ext:
         self._modulus = modulus
         self.BITS = base.BITS * self._degree
         self.BASE = base
-        self.BASIS = 1 << base.BITS
         self.PRIM = None
 
     def mul(self, a, b):
@@ -604,7 +603,6 @@ class GF2n:
         self.BITS = modulus.bit_length() - 1
         self.BASE = GF2()
         assert poly_isirreducible(self.BASE, modulus)
-        self.BASIS = 2
         self._modulus = modulus
         self.PRIM = None
 
@@ -649,7 +647,7 @@ class GF2Table:
 
     def __init__(self, unopt):
         """Construct a GF2Table object given the non-table version of the field."""
-        gen = gf_primitive(unopt)
+        prim = gf_primitive(unopt)
         logtbl = [0 for _ in range(1 << unopt.BITS)]
         exptbl = [0 for _ in range((1 << unopt.BITS) - 1)]
         v = 1
@@ -657,12 +655,11 @@ class GF2Table:
             assert (v == 1) == (l == 0)
             logtbl[v] = l
             exptbl[l] = v
-            v = unopt.mul(v, gen)
+            v = unopt.mul(v, prim)
         assert v == 1
         self.BITS = unopt.BITS
         self.BASE = unopt.BASE
-        self.BASIS = unopt.BASIS
-        self.GEN = gen
+        self.PRIM = prim
         self._logtbl = tuple(logtbl)
         self._exptbl = tuple(exptbl)
 
