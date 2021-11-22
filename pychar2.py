@@ -306,8 +306,11 @@ def poly_degree(gf, p):
     if p == 0: return 0
     return (p.bit_length() - 1) // gf.BITS
 
-def poly_coef(gf, p, n):
-    """Get the nth degree coefficient of polynomial p over field gf."""
+def vec_get(gf, p, n):
+    """Get the nth element of vector p over field gf.
+
+    As vectors are represented as vectors of coefficients, this also gets the
+    nth degree coefficient of a polynomial p."""
     return (p >> (n * gf.BITS)) & ((1 << gf.BITS) - 1)
 
 def poly_make(gf, lst):
@@ -323,7 +326,7 @@ def vec_mul(gf, p, v):
     if v == 1: return p
     ret = 0
     for d in range(poly_degree(gf, p) + 1):
-        ret |= gf.mul(v, poly_coef(gf, p, d)) << (gf.BITS * d)
+        ret |= gf.mul(v, vec_get(gf, p, d)) << (gf.BITS * d)
     return ret
 
 def poly_mul(gf, a, b):
@@ -333,7 +336,7 @@ def poly_mul(gf, a, b):
     if a == 1: return b
     if b == 1: return a
     for d in range(poly_degree(gf, a) + 1):
-        ret ^= vec_mul(gf, b, poly_coef(gf, a, d)) << (gf.BITS * d)
+        ret ^= vec_mul(gf, b, vec_get(gf, a, d)) << (gf.BITS * d)
     return ret
 
 def poly_addroot(gf, p, v):
@@ -342,12 +345,12 @@ def poly_addroot(gf, p, v):
 
 def poly_monic(gf, p):
     """Make polynomial p over field gf monic, also returning the multiplication factor."""
-    i = gf.inv(poly_coef(gf, p, poly_degree(gf, p)))
+    i = gf.inv(vec_get(gf, p, poly_degree(gf, p)))
     return vec_mul(gf, p, i), i
 
 def poly_ismonic(gf, p):
     """Check whether polynomial p over field gf is monic."""
-    return poly_coef(gf, p, poly_degree(gf, p)) == 1
+    return vec_get(gf, p, poly_degree(gf, p)) == 1
 
 def poly_divmod(gf, p, m):
     """Divide polynomial p by monic polynomial m, over field gf. Return quotient and remainder."""
@@ -357,7 +360,7 @@ def poly_divmod(gf, p, m):
         return p, 0
     quot = 0
     while pn >= mn:
-        term = poly_coef(gf, p, pn)
+        term = vec_get(gf, p, pn)
         quot |= term << ((pn - mn) * gf.BITS)
         assert term != 0
         p ^= vec_mul(gf, m, term) << ((pn - mn) * gf.BITS)
@@ -416,7 +419,7 @@ def poly_sqr(gf, p):
     """Square a polynomial p over field gf. This exploits the Frobenius endomorphism."""
     ret = 0
     for d in range(poly_degree(gf, p) + 1):
-        ret |= gf.sqr(poly_coef(gf, p, d)) << (2 * gf.BITS * d)
+        ret |= gf.sqr(vec_get(gf, p, d)) << (2 * gf.BITS * d)
     return ret
 
 def poly_isirreducible(gf, p):
@@ -449,7 +452,7 @@ def poly_isprimitive(gf, p):
 
 def poly_list(gf, p):
     """Convert polynomial p over field gf to list representation (low to high)."""
-    return [poly_coef(gf, p, i) for i in range(poly_degree(gf, p) + 1)]
+    return [vec_get(gf, p, i) for i in range(poly_degree(gf, p) + 1)]
 
 def gf_minpoly(gf, v):
     """Given an extension field gf and an element v in it, find its minimal polynomial over gf.BASE."""
@@ -463,7 +466,7 @@ def gf_minpoly(gf, v):
             break
     s = 0
     for d in range(poly_degree(gf, r) + 1):
-        c = poly_coef(gf, r, d)
+        c = vec_get(gf, r, d)
         assert (c >> basebits) == 0
         s |= c << (basebits * d)
     assert poly_isirreducible(gf.BASE, s)
@@ -510,7 +513,7 @@ def poly_findroots(gf, p):
         return []
     p, _ = poly_monic(gf, p)
     if poly_degree(gf, p) == 1:
-        return [poly_coef(gf, p, 0)]
+        return [vec_get(gf, p, 0)]
     if poly_frobeniusmod(gf, p) != (1 << gf.BITS):
         return None
 
@@ -519,7 +522,7 @@ def poly_findroots(gf, p):
     def rec_split(p, v):
         assert poly_degree(gf, p) > 0 and poly_ismonic(gf, p)
         if poly_degree(gf, p) == 1:
-            ret.append(poly_coef(gf, p, 0))
+            ret.append(vec_get(gf, p, 0))
             return
         while True:
             trace = poly_tracemod(gf, p, v)
@@ -538,12 +541,28 @@ def poly_findroots(gf, p):
 def berlekamp_massey(gf, syndromes):
     """The Berklekamp-Massey algorithm.
 
-    Given a vector of elements over field gf, return the shortest LFSR that generates
+    Given a sequence of elements over field gf, return the shortest LFSR that generates
     it, represented as a polynomial."""
-    current = 1
-    prev = 1
-    b_inv = 1
-#    for n, discrepancy in enumerate(s
+    c, b, l, m, bi = 1, 1, 0, 1, 1
+
+    for n in range(len(syndromes)):
+        d = syndromes[n]
+        for i in range(1, l+1):
+            d ^= gf.mul(syndromes[n - i], vec_get(gf, c, i))
+        if d == 0:
+            m += 1
+        elif 2 * l <= n:
+            t = c
+            c ^= vec_mul(gf, b, gf_mul(gf, d, bi)) << (gf.BITS * m)
+            l = n + 1 - l
+            b = t
+            bi = gf_inv(gf, d)
+            m = i
+        else:
+            c ^= vec_mul(gf, b, gf_mul(gf, d, bi)) << (gf.BITS * m)
+            m += 1
+    return c
+
 
 class GF2:
     """Field operations object for GF(2)."""
