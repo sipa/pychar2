@@ -577,7 +577,7 @@ def poly_isprimitive(gf, p):
     if n == 0: return False
     if n == 1: return True
     if not poly_isirreducible(gf, p): return False
-    for (factor, _) in z_factors((1 << (n * gf.BITS)) - 1):
+    for (factor, _) in z_factor((1 << (n * gf.BITS)) - 1):
         if poly_powmod(gf, 1 << gf.BITS, ((1 << (n * gf.BITS)) - 1) // factor, p) == 1:
             return False
     return True
@@ -607,7 +607,7 @@ def gf_minpoly(gf, v):
 def gf_isprimitive(gf, v):
     """Determine whether v is a primitive element of field gf."""
     if gf.PRIM is not None and v == gf.PRIM: return True
-    for factor, _ in z_factors((1 << gf.BITS) - 1):
+    for factor, _ in z_factor((1 << gf.BITS) - 1):
         if gf_pow(gf, v, ((1 << gf.BITS) - 1) // factor) == 1:
             return False
     return True
@@ -624,6 +624,22 @@ def gf_primitive(gf):
                 break
     return gf.PRIM
 
+def poly_reverse(gf, p):
+    """Given a polynomial p over gf with non-zero constant term, reverse the coefficients."""
+    assert p & ((1 << gf.BITS) - 1) != 0
+    degree = poly_degree(gf, p)
+    ret = 0
+    for i in range(degree + 1):
+        ret |= vec_get(gf, p, i) << ((degree - i) * gf.BITS)
+    return ret
+
+def poly_square_coef(gf, p):
+    """Square the coefficients of a polynomial over field gf."""
+    ret = 0
+    for i in range(poly_degree(gf, p) + 1):
+        ret |= gf.sqr(vec_get(gf, p, i)) << (i * gf.BITS)
+    return ret
+ 
 def poly_tracemod(gf, p, v):
     """Compute y + y^2 + y^4 + ... + y^(order(gf)/2) mod p over gf, where y=v*x."""
     out = v << gf.BITS
@@ -716,19 +732,22 @@ class GF2:
 class GF2Ext:
     """Field operations object for extension fields of characteristic 2 fields."""
 
-    def __init__(self, base, modulus):
+    def __init__(self, base, modulus, modulus_is_primitive=False):
         """Construct a field extension over field base and irreducible monic polynomial over it."""
         if isinstance(modulus, list):
             modulus = poly_make(base, modulus)
         assert isinstance(modulus, int)
         assert poly_ismonic(base, modulus)
-        assert poly_degree(base, modulus) > 1
+        assert poly_degree(base, modulus) > 0
         assert poly_isirreducible(base, modulus)
-        self._degree = poly_degree(base, modulus)
         self._modulus = modulus
-        self.BITS = base.BITS * self._degree
+        self.BITS = base.BITS * poly_degree(base, modulus)
         self.BASE = base
-        self.PRIM = None
+        if modulus_is_primitive:
+            assert poly_isprimitive(base, modulus)
+            self.PRIM = 1 << base.BITS
+        else:
+            self.PRIM = None
 
     def mul(self, a, b):
         return poly_mulmod(self.BASE, a, b, self._modulus)
@@ -746,7 +765,7 @@ class GF2n:
     The behavior of GF2n(modulus) is identical to GF2Ext(GF2(), modulus), but faster.
     """
 
-    def __init__(self, modulus):
+    def __init__(self, modulus, modulus_is_primitive=False):
         """Construct a field GF(2^n), given a degree n irreducible polynomial over GF(2)."""
         assert isinstance(modulus, int)
         assert modulus > 1
@@ -754,7 +773,11 @@ class GF2n:
         self.BASE = GF2()
         assert poly_isirreducible(self.BASE, modulus)
         self._modulus = modulus
-        self.PRIM = None
+        if modulus_is_primitive:
+            assert poly_isprimitive(self.BASE, modulus)
+            self.PRIM = 2
+        else:
+            self.PRIM = None
 
     def _mul2(self, v):
         v <<= 1
@@ -898,7 +921,7 @@ class TestPolyFindRoots(unittest.TestCase):
     def test(self):
         """Run tests."""
         for field in test_fields():
-            for j in range(5):
+            for j in range(10):
                 self.field_test(field)
 
 if __name__ == '__main__':
