@@ -431,6 +431,8 @@ def poly_mul(gf, a, b):
     if a == 0 or b == 0: return 0
     if a == 1: return b
     if b == 1: return a
+    if poly_degree(gf, a) > poly_degree(gf, b):
+        a, b = b, a
     for d in range(poly_degree(gf, a) + 1):
         ret ^= vec_mul(gf, b, vec_get(gf, a, d)) << (gf.BITS * d)
     return ret
@@ -452,8 +454,7 @@ def poly_divmod(gf, p, m):
     """Divide polynomial p by monic polynomial m, over field gf. Return quotient and remainder."""
     assert poly_ismonic(gf, m)
     pn, mn = poly_degree(gf, p), poly_degree(gf, m)
-    if mn == 0:
-        return p, 0
+    if mn == 0: return p, 0
     quot = 0
     while pn >= mn:
         term = vec_get(gf, p, pn)
@@ -464,8 +465,17 @@ def poly_divmod(gf, p, m):
     return quot, p
 
 def poly_mod(gf, p, m):
-    """Compute polynomial p modulo polynomial m, over field gf."""
-    return poly_divmod(gf, p, m)[1]
+    """Compute polynomial p modulo monic polynomial m, over field gf.
+
+    Identical to poly_divmod(gf, p, m)[1], but faster.
+    """
+    assert poly_ismonic(gf, m)
+    pn, mn = poly_degree(gf, p), poly_degree(gf, m)
+    if mn == 0: return 0
+    while pn >= mn:
+        p ^= vec_mul(gf, m, vec_get(gf, p, pn)) << ((pn - mn) * gf.BITS)
+        pn = poly_degree(gf, p)
+    return p
 
 def gf_pow(gf, v, n):
     """Raise element v of field gf to power n (n >= 0)."""
@@ -476,13 +486,20 @@ def gf_pow(gf, v, n):
             r = gf.mul(r, v)
     return r
 
+def poly_mulmod(gf, a, b, m):
+    """Multiply polynomials a and b over field gf, modulo monic polynomial m."""
+    return poly_mod(gf, poly_mul(gf, a, b), m)
+
+def poly_sqrmod(gf, a, m):
+    """Square polynomial a over field gf, modulo monic polynomial m."""
+    return poly_mod(gf, poly_sqr(gf, a), m)
+
 def poly_powmod(gf, v, n, m):
     """Raise polynomial v over field gf to power n (n >= 0), mod polynomial m."""
     r = 1
     for i in range(n.bit_length() - 1, -1, -1):
-        r = poly_mod(gf, poly_sqr(gf, r), m)
-        if (n >> i) & 1:
-            r = poly_mod(gf, poly_mul(gf, r, v), m)
+        r = poly_sqrmod(gf, r, m)
+        if (n >> i) & 1: r = poly_mulmod(gf, r, v, m)
     return r
 
 def poly_extgcd(gf, a, b):
@@ -501,14 +518,18 @@ def poly_extgcd(gf, a, b):
 
 def poly_gcd(gf, a, b):
     """Return the gcd of polynomials a and b over field gf."""
-    return poly_extgcd(gf, a, b)[0]
+    if a == 0 or poly_degree(gf, a) < poly_degree(gf, b):
+        a, b = b, a
+    while b != 0:
+        b, i = poly_monic(gf, b)
+        a, b = b, poly_mod(gf, a, b)
+    return a
 
 def poly_invmod(gf, p, m):
     """Return the inverse of polynomial p over field gf, modulo polynomial m."""
     if p == 1: return 1
     gcd, inv, _ = poly_extgcd(gf, p, m)
-    if gcd != 1:
-        return None
+    if gcd != 1: return None
     return inv
 
 def poly_sqr(gf, p):
@@ -531,7 +552,7 @@ def poly_isirreducible(gf, p):
             if poly_gcd(gf, p, h ^ (1 << gf.BITS)) != 1: return False
             factors.pop()
         for _ in range(gf.BITS):
-            h = poly_mod(gf, poly_sqr(gf, h), p)
+            h = poly_sqrmod(gf, h, p)
     return h == (1 << gf.BITS)
 
 def poly_isprimitive(gf, p):
@@ -596,10 +617,10 @@ def poly_tracemod(gf, p, v):
     return out
 
 def poly_frobeniusmod(gf, p):
-    """Compute x^(order(gf)) mod p, for polynomial p over gf."""
+    """Compute x^(order(gf)) mod p, for monic polynomial p over gf."""
     out = 1 << gf.BITS
     for _ in range(gf.BITS):
-        out = poly_mod(gf, poly_sqr(gf, out), p)
+        out = poly_sqrmod(gf, out, p)
     return out
 
 def poly_findroots(gf, p):
@@ -697,12 +718,13 @@ class GF2Ext:
         self.PRIM = None
 
     def mul(self, a, b):
-        return poly_mod(self.BASE, poly_mul(self.BASE, a, b), self._modulus)
+        return poly_mulmod(self.BASE, a, b, self._modulus)
 
     def sqr(self, v):
-        return poly_mod(self.BASE, poly_sqr(self.BASE, v), self._modulus)
+        return poly_sqrmod(self.BASE, v, self._modulus)
 
     def inv(self, v):
+        if v == 1: return 1
         return poly_invmod(self.BASE, v, self._modulus)
 
 class GF2n:
@@ -826,12 +848,11 @@ class TestPolyInvMod(unittest.TestCase):
             m = random.getrandbits(degree * gf.BITS) | (1 << (degree * gf.BITS))
             if poly_gcd(gf, a, m) == 1:
                 break
-        p = poly_mod(gf, poly_mul(gf, a, b), m)
         ai = poly_invmod(gf, a, m)
-        aia = poly_mod(gf, poly_mul(gf, a, ai), m)
+        aia = poly_mulmod(gf, a, ai, m)
         assert aia == 1
-        p = poly_mod(gf, poly_mul(gf, a, b), m)
-        b2 = poly_mod(gf, poly_mul(gf, p, ai), m)
+        p = poly_mulmod(gf, a, b, m)
+        b2 = poly_mulmod(gf, p, ai, m)
         assert b2 == b
 
     def test(self):
