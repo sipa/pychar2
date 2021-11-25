@@ -381,6 +381,8 @@ POW2MINUS1_FACTORS = [
 
 def z_factor(n):
     """Factor the number n (>= 1) into its prime factors, with multiplicity."""
+    if n & (n+1) == 0:
+        return POW2MINUS1_FACTORS[n.bit_length()]
     ret = []
     def addfac(p):
         if len(ret) and ret[-1][0] == p:
@@ -396,6 +398,19 @@ def z_factor(n):
             p += 1 + (p & 1)
     if n > 1: addfac(n)
     return [tuple(v) for v in ret]
+
+def z_divisors(n):
+    factors = z_factor(n)
+    ret = []
+    def rec(i, v):
+        if i == len(factors):
+            ret.append(v)
+        else:
+            for p in range(factors[i][1] + 1):
+                rec(i + 1, v)
+                v *= factors[i][0]
+    rec(0, 1)
+    return sorted(ret)
 
 def poly_degree(gf, p):
     """Get the degree of polynomial p over field gf."""
@@ -562,7 +577,7 @@ def poly_isprimitive(gf, p):
     if n == 0: return False
     if n == 1: return True
     if not poly_isirreducible(gf, p): return False
-    for (factor, _) in POW2MINUS1_FACTORS[n * gf.BITS]:
+    for (factor, _) in z_factors((1 << (n * gf.BITS)) - 1):
         if poly_powmod(gf, 1 << gf.BITS, ((1 << (n * gf.BITS)) - 1) // factor, p) == 1:
             return False
     return True
@@ -592,7 +607,7 @@ def gf_minpoly(gf, v):
 def gf_isprimitive(gf, v):
     """Determine whether v is a primitive element of field gf."""
     if gf.PRIM is not None and v == gf.PRIM: return True
-    for factor, _ in POW2MINUS1_FACTORS[gf.BITS]:
+    for factor, _ in z_factors((1 << gf.BITS) - 1):
         if gf_pow(gf, v, ((1 << gf.BITS) - 1) // factor) == 1:
             return False
     return True
@@ -669,10 +684,8 @@ def berlekamp_massey(gf, syndromes):
         if d == 0:
             m += 1
         elif 2 * l <= n:
-            t = c
-            c ^= vec_mul(gf, b, gf_mul(gf, d, bi)) << (gf.BITS * m)
+            b, c = c, c ^ vec_mul(gf, b, gf_mul(gf, d, bi)) << (gf.BITS * m)
             l = n + 1 - l
-            b = t
             bi = gf_inv(gf, d)
             m = i
         else:
@@ -885,7 +898,7 @@ class TestPolyFindRoots(unittest.TestCase):
     def test(self):
         """Run tests."""
         for field in test_fields():
-            for j in range(10):
+            for j in range(5):
                 self.field_test(field)
 
 if __name__ == '__main__':
