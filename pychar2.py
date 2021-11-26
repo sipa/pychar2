@@ -582,6 +582,13 @@ def poly_isprimitive(gf, p):
             return False
     return True
 
+def poly_primitive(gf, n):
+    """Find a primitive polynomial of degree n over field gf."""
+    for p in range(1 << (gf.BITS * n), 2 << (gf.BITS * n)):
+        if poly_isprimitive(gf, p):
+            return p
+    assert False
+
 def poly_list(gf, p):
     """Convert polynomial p over field gf to list representation (low to high)."""
     return [vec_get(gf, p, i) for i in range(poly_degree(gf, p) + 1)]
