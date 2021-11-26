@@ -382,7 +382,7 @@ POW2MINUS1_FACTORS = [
 def z_factor(n):
     """Factor the number n (>= 1) into its prime factors, with multiplicity."""
     if n & (n+1) == 0:
-        return POW2MINUS1_FACTORS[n.bit_length()]
+        return list(POW2MINUS1_FACTORS[n.bit_length()])
     ret = []
     def addfac(p):
         if len(ret) and ret[-1][0] == p:
@@ -560,6 +560,7 @@ def poly_isirreducible(gf, p):
     assert poly_ismonic(gf, p)
     n = poly_degree(gf, p)
     if n <= 1: return True
+
     h = 1 << gf.BITS
     factors = z_factor(n)
     for d in range(n):
@@ -582,12 +583,19 @@ def poly_isprimitive(gf, p):
             return False
     return True
 
+def poly_irreducible(gf, n):
+    """Find a random irreducible polynomial of degree n over field gf."""
+    while True:
+        p = random.randrange(1 << (gf.BITS * n), 2 << (gf.BITS * n))
+        if poly_isirreducible(gf, p):
+            return p
+
 def poly_primitive(gf, n):
-    """Find a primitive polynomial of degree n over field gf."""
-    for p in range(1 << (gf.BITS * n), 2 << (gf.BITS * n)):
+    """Find a random primitive polynomial of degree n over field gf."""
+    while True:
+        p = random.randrange(1 << (gf.BITS * n), 2 << (gf.BITS * n))
         if poly_isprimitive(gf, p):
             return p
-    assert False
 
 def poly_list(gf, p):
     """Convert polynomial p over field gf to list representation (low to high)."""
@@ -611,13 +619,17 @@ def gf_minpoly(gf, v):
     assert poly_isirreducible(gf.BASE, s)
     return s
 
+def gf_hasorder(gf, v, n):
+    """Verify that v, field element of gf, has multiplicative order n."""
+    for factor, _ in z_factor(n):
+        if gf_pow(gf, v, n // factor) == 1: return False
+    if n != (1 << gf.BITS) - 1 and gf_pow(gf, v, n) != 1: return False
+    return True
+
 def gf_isprimitive(gf, v):
     """Determine whether v is a primitive element of field gf."""
     if gf.PRIM is not None and v == gf.PRIM: return True
-    for factor, _ in z_factor((1 << gf.BITS) - 1):
-        if gf_pow(gf, v, ((1 << gf.BITS) - 1) // factor) == 1:
-            return False
-    return True
+    return gf_hasorder(gf, v, (1 << gf.BITS) - 1)
 
 def gf_primitive(gf):
     """Find a primitive element of field gf."""
