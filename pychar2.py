@@ -517,18 +517,24 @@ def poly_powmod(gf, v, n, m):
         if (n >> i) & 1: r = poly_mulmod(gf, r, v, m)
     return r
 
-def poly_extgcd(gf, a, b):
+def poly_extgcd(gf, a, b, degree_below=0):
     """Return the gcd of polynomials a and b over field gf, as well as the Bezout coefficients."""
-    aa, ab, ba, bb = 1, 0, 0, 1
-    if a == 0 or poly_degree(gf, a) < poly_degree(gf, b):
-        a, b = b, a
-        aa, ab, ba, bb = ba, bb, aa, ab
-    while b != 0:
-        b, i = poly_monic(gf, b)
-        ba, bb = vec_mul(gf, ba, i), vec_mul(gf, bb, i)
-        q, r = poly_divmod(gf, a, b)
-        a, b = b, r
-        aa, ab, ba, bb = ba, bb, aa ^ poly_mul(gf, ba, q), ab ^ poly_mul(gf, bb, q)
+    aa, ab, ad, ba, bb, bd = 1, 0, poly_degree(gf, a), 0, 1, poly_degree(gf, b)
+    while b:
+        if a < b:
+            a, aa, ab, ad, b, ba, bb, bd = b, ba, bb, bd, a, aa, ab, ad
+            continue
+        if vec_get(gf, b, bd) != 1:
+            b, i = poly_monic(gf, b)
+            ba, bb = vec_mul(gf, ba, i), vec_mul(gf, bb, i)
+        if bd < degree_below:
+            return b, ba, bb
+        q = ad - bd
+        m = vec_get(gf, a, ad)
+        a ^= vec_mul(gf, b, m) << (q * gf.BITS)
+        aa ^= vec_mul(gf, ba, m) << (q * gf.BITS)
+        ab ^= vec_mul(gf, bb, m) << (q * gf.BITS)
+        ad = poly_degree(gf, a)
     return a, aa, ab
 
 def poly_gcd(gf, a, b):
