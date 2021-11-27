@@ -643,6 +643,20 @@ def gf_primitive(gf):
                 break
     return gf.PRIM
 
+def poly_eval(gf, p, v):
+    """Evaluate the polynomial p over gf in point v."""
+    r = 0
+    for i in range(poly_degree(gf, p), -1, -1):
+        r = gf.mul(r, v) ^ vec_get(gf, p, i)
+    return r
+
+def poly_deriv(gf, p,):
+    """Compute the formal derivative of polynomial p over gf."""
+    r = 0
+    for i in range(1, poly_degree(gf, p) + 1, 2):
+        r |= vec_get(gf, p, i) << ((i - 1) * gf.BITS)
+    return r
+
 def poly_reverse(gf, p):
     """Given a polynomial p over gf with non-zero constant term, reverse the coefficients."""
     assert p & ((1 << gf.BITS) - 1) != 0
