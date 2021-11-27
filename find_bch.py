@@ -160,43 +160,48 @@ def gen_bch(field, min_deg, min_dist, min_len, report_fn=default_report_fn, max_
                 if one_gen: break
             return 1
 
-        # Bitset of powers of alpha already processed (this includes powers of alpha
-        # which have a minpoly equal to one that has already been processed).
-        alpha_pows_done = 0
-        # Iterate over all alphas (extfield elements with order length).
-        num_distinct_alphas = 0
-        # List of valid c values (constructed during alpha_pow==1, reused for later iterations).
-        valid_c_dists = []
-        for alpha_pow in range(1, 2 if one_gen else length):
+        # Determine which powers of alpha result in distinct minpolys and order length.
+        alpha_pows = []
+        alpha_done = 0
+        for alpha_pow in range(1, length):
+            # Skip powers of alpha whose minpoly we have already added.
+            if (alpha_done >> alpha_pow) & 1: continue
             # Skip powers of len_base with order different from length.
             if math.gcd(alpha_pow, length) != 1: continue
-            # Skip alphas which have a minpoly equal to one already processed.
-            if (alpha_pows_done >> alpha_pow) & 1: continue
+            # We have a good alpha_pow, remember it.
+            alpha_pows.append(alpha_pow)
+            # Add it, and all its equivalent powers, to the alpha_done bitset.
             pp = alpha_pow
             while True:
-                alpha_pows_done |= (1 << pp)
-                pp = (pp << field.BITS) % length
+                alpha_done |= (1 << pp)
+                if dedup_iso:
+                    pp = (pp << 1) % length
+                else:
+                    pp = (pp << field.BITS) % length
                 if pp == alpha_pow: break
-            num_distinct_alphas += 1
 
-            if alpha_pow == 1:
-                # Iterate over all c values and see which ones give acceptable degree.
-                for c in range(1, length):
-                    # Start by searching for dist=min_dist, but as long as dists exist at or
-                    # below max_deg, keep incrementing dist.
+        # Iterate over all c values
+        for c in range(0, length):
+            valid_dists = []
+            first = True
+            for alpha_pow in alpha_pows:
+                if first:
+                    # In the first alpha_pow, determine which dists for this c result in acceptable degs.
+                    first = False
                     dist = min_dist
                     while True:
                         found_deg = sum(pychar2.poly_degree(field, v) for v in set(minpoly(c + i) for i in range(0, dist - 1)))
                         if found_deg > max_deg: break
                         if found_deg >= min_deg or pad_degree:
-                            valid_c_dists.append((c, dist))
+                            valid_dists.append(dist)
                             outputs += output(alpha_pow, c, dist)
                             if one_gen: break
                         dist += 1
-                    if one_gen and outputs: break
-            else:
-                for c, dist in valid_c_dists:
-                    outputs += output(alpha_pow, c, dist)
+                else:
+                    # For other alpha_pows, just reuse those dists.
+                    for dist in valid_dists:
+                        outputs += output(alpha_pow, c, dist)
+            if one_gen and outputs: break
 
 F = pychar2.GF2Table(pychar2.GF2n(41))
 
