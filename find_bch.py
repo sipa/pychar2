@@ -40,13 +40,13 @@ def default_report_fn(data):
               ",".join("%i" % v for v in pychar2.poly_list(field, data["bch"]["modulus"])),
               data["bch"]["c"]))
 
-def gen_bch(field, min_deg, min_dist, min_len, report_fn=default_report_fn, max_deg=None, min_ext_deg=1, max_ext_deg=None, max_len=None, pad_degree=False, dedup_iso=True, one_gen=False):
+def gen_bch(field, min_deg, dist, min_len, report_fn=default_report_fn, max_deg=None, min_ext_deg=1, max_ext_deg=None, max_len=None, pad_degree=False, dedup_iso=True, one_gen=False):
     """Generate BCH code generators and print them out.
 
     - field: the field the code is over
     - min_deg: the minimum number of checksum symbols
     - max_deg: the maximum number of checksum symbols (default: min_deg)
-    - min_dist: the minimum distance the code must have
+    - dist: the minimum distance the code must have
     - min_len: the minimum length the code must have
     - max_len: the maximum length the code must have (default max_len * size(field))
     - min_ext_deg: minimum extension field degree to consider (default: 1)
@@ -59,7 +59,8 @@ def gen_bch(field, min_deg, min_dist, min_len, report_fn=default_report_fn, max_
     """
 
     if max_deg is None: max_deg = min_deg
-    if max_ext_deg is None: max_ext_deg = (4 * max_deg + min_dist - 2) // (min_dist - 1) 
+    if max_ext_deg is None: max_ext_deg = (4 * max_deg + dist - 2) // (dist - 1)
+    if one_gen: dedup_iso = True
 
     # Build a map of acceptable lengths, giving the extension degree for each.
     lengths = {}
@@ -67,7 +68,7 @@ def gen_bch(field, min_deg, min_dist, min_len, report_fn=default_report_fn, max_
         for div in pychar2.z_divisors((1 << (field.BITS * ext_deg)) - 1):
             if div >= min_len and (max_len is None or div <= max_len):
                 if div not in lengths:
-                    if not viable(field.BITS, div, max_deg, min_dist):
+                    if not viable(field.BITS, div, max_deg, dist):
                         max_len = div - 1
                     else:
                         lengths[div] = ext_deg
@@ -118,27 +119,11 @@ def gen_bch(field, min_deg, min_dist, min_len, report_fn=default_report_fn, max_
                 if p == n: break
             return minpoly
 
-        gens = set()
-        outputs = 0
-        def output(alpha_pow, c, dist):
-            """Produce output for a given alpha_pow and c value."""
-            gen = 1
-            for factor in set(minpoly(alpha_pow * (c + i)) for i in range(dist - 1)):
-                gen = pychar2.poly_mul(field, gen, factor)
+        def output_mgen(alpha_pow, c, gen):
+            """Produce output for (alpha_pow, c), adding factors to reach min_deg as needed."""
+            alpha_minpoly = minpoly(alpha_pow)
             found_deg = pychar2.poly_degree(field, gen)
             assert found_deg <= max_deg and (found_deg >= min_deg or pad_degree)
-            if gen in gens: return 0
-            if dedup_iso:
-                geni = gen
-                for i in range(field.BITS):
-                    genir, _ = pychar2.poly_monic(field, pychar2.poly_reverse(field, geni))
-                    gens.add(geni)
-                    gens.add(genir)
-                    gen = min(min(gen, geni), genir)
-                    geni = pychar2.poly_square_coef(field, geni)
-            else:
-                gens.add(gen)
-            alpha_minpoly = minpoly(alpha_pow)
             add_deg = max(0, min_deg - found_deg)
             for m in range(1 << (add_deg * field.BITS), 2 << (add_deg * field.BITS)):
                 if pychar2.vec_get(field, m, 0) == 0: continue
@@ -158,12 +143,48 @@ def gen_bch(field, min_deg, min_dist, min_len, report_fn=default_report_fn, max_
                 }
                 report_fn(result_data)
                 if one_gen: break
-            return 1
+
+        gens = set()
+        num_distinct_gens = [0]
+        def output_dedup(alpha_pow, c):
+            """Produce output for (alpha_pow, c) combination, filtering out duplicates.
+
+            If not dedup_iso, this also produces output for (+- alpha_pow * 2^i, c), which
+            has distinct but equivalent generators."""
+            c = (c % length)
+            alpha_pow = (alpha_pow % length)
+            # Compute the generator for the provided (alpha_pow, c).
+            gen = 1
+            for factor in set(minpoly(alpha_pow * (c + i)) for i in range(dist - 1)):
+                gen = pychar2.poly_mul(field, gen, factor)
+            if gen in gens: return
+            # Compute the generator for (-alpha_pow, c).
+            geni, _ = pychar2.poly_monic(field, pychar2.poly_reverse(field, gen))
+            # Iterate over i to find the generators for (+- alpha_pow*2^i, c), adding all of them
+            # to the gens set for deduplication.
+            num_distinct_gens[0] += 1
+            for i in range(field.BITS):
+                if i == 0 or not dedup_iso: output_mgen(alpha_pow, c, gen)
+                if not dedup_iso and geni != gen: output_mgen(length - alpha_pow, c, geni)
+                gens.add(gen)
+                gens.add(geni)
+                gen = pychar2.poly_square_coef(field, gen)
+                geni = pychar2.poly_square_coef(field, geni)
+                alpha_pow = (alpha_pow << 1) % length
 
         # Determine which powers of alpha result in distinct minpolys and order length.
+        # Multiplying alpha_pow with (1 << field.BITS) does not change the minpoly.
+        # Multiplying alpha_pow with 2 corresponds to squaring all coefficients of the
+        # minpoly, and of the generators that come out (which are distinct but equivalent).
+        # The same is true for negating alpha_pow, which reverses the order of
+        # coefficients of minpoly and the generators that come out.
+        # We avoid processing alpha_pows with equivalent generators here, and print all
+        # variants if desired in output_dedup.
+        # The list of interesting alpha_pows.
         alpha_pows = []
+        # Bitvector of alpha_pows and equivalent ones which have been added already.
         alpha_done = 0
-        for alpha_pow in range(1, length):
+        for alpha_pow in range(1, (length + 1) // 2):
             # Skip powers of alpha whose minpoly we have already added.
             if (alpha_done >> alpha_pow) & 1: continue
             # Skip powers of len_base with order different from length.
@@ -173,36 +194,35 @@ def gen_bch(field, min_deg, min_dist, min_len, report_fn=default_report_fn, max_
             # Add it, and all its equivalent powers, to the alpha_done bitset.
             pp = alpha_pow
             while True:
-                alpha_done |= (1 << pp)
-                if dedup_iso:
-                    pp = (pp << 1) % length
-                else:
-                    pp = (pp << field.BITS) % length
+                if pp < (length + 1) // 2: alpha_done |= (1 << pp)
+                pp = (pp << 1) % length
                 if pp == alpha_pow: break
 
-        # Iterate over all c values
-        for c in range(0, length):
-            valid_dists = []
+        # Iterate over all c values. Only [c,c+dist-2] intervals are searched which contain a value
+        # in [0,c/2]. Mirroring the interval around c/2 corresponds to negating all the len_base
+        # powers, which results in distinct but equivalent generators. output_dedup will output
+        # both if desired, so we can avoid the double work here.
+        found = False
+        for c in range(2 - dist, (length + 1) // 2):
             first = True
             for alpha_pow in alpha_pows:
                 if first:
-                    # In the first alpha_pow, determine which dists for this c result in acceptable degs.
+                    # Determine if this c value results in acceptable generators.
                     first = False
-                    dist = min_dist
-                    while True:
-                        found_deg = sum(pychar2.poly_degree(field, v) for v in set(minpoly(c + i) for i in range(0, dist - 1)))
-                        if found_deg > max_deg: break
-                        if found_deg >= min_deg or pad_degree:
-                            valid_dists.append(dist)
-                            outputs += output(alpha_pow, c, dist)
-                            if one_gen: break
-                        dist += 1
+                    found_deg = sum(pychar2.poly_degree(field, v) for v in set(minpoly(c + i) for i in range(0, dist - 1)))
+                    if found_deg <= max_deg and (found_deg >= min_deg or pad_degree):
+                        found = True
+                        output_dedup(alpha_pow, c)
+                    else:
+                        break
                 else:
-                    # For other alpha_pows, just reuse those dists.
-                    for dist in valid_dists:
-                        outputs += output(alpha_pow, c, dist)
-            if one_gen and outputs: break
+                    # For other alpha_pows, we already know they'll work.
+                    output_dedup(alpha_pow, c)
+                    found = True
+                if one_gen and found: break
+            if one_gen and found: break
+
+        print("# len=%i ext_deg=%i: %i alphas, %i classes, %i generators" % (length, ext_deg, len(alpha_pows), num_distinct_gens[0], len(gens)))
 
 F = pychar2.GF2Table(pychar2.GF2n(41))
-
-gen_bch(F, min_deg=13, min_dist=9, min_len=69, dedup_iso=False)
+gen_bch(field=F, min_deg=13, dist=9, min_len=69, dedup_iso=False)
