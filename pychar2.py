@@ -607,6 +607,13 @@ def poly_list(gf, p):
     """Convert polynomial p over field gf to list representation (low to high)."""
     return [vec_get(gf, p, i) for i in range(poly_degree(gf, p) + 1)]
 
+def poly_lift(gf, p):
+    """Given an extension field gf, and a polynomial p over gf.BASE, lift it to gf."""
+    r = 0
+    for i in range(poly_degree(gf.BASE, p) + 1):
+        r |= vec_get(gf.BASE, p, i) << (i * gf.BITS)
+    return r
+
 def gf_minpoly(gf, v):
     """Given an extension field gf and an element v in it, find its minimal polynomial over gf.BASE."""
     basebits = gf.BASE.BITS
@@ -705,25 +712,36 @@ def poly_findroots(gf, p):
         return None
 
     ret = []
-    prim = gf_primitive(gf)
-    def rec_split(p, v):
+    def rec_split(p):
         assert poly_degree(gf, p) > 0 and poly_ismonic(gf, p)
         if poly_degree(gf, p) == 1:
             ret.append(vec_get(gf, p, 0))
             return
         while True:
-            trace = poly_tracemod(gf, p, v)
-            v = gf.mul(v, prim)
+            trace = poly_tracemod(gf, p, random.randrange(1, 1 << gf.BITS))
             gcd = poly_gcd(gf, trace, p)
             if poly_degree(gf, gcd) < poly_degree(gf, p) and poly_degree(gf, gcd) > 0:
                 break
         factor1, _ = poly_monic(gf, gcd)
         factor2, _ = poly_divmod(gf, p, factor1)
-        rec_split(factor1, v)
-        rec_split(factor2, v)
+        rec_split(factor1)
+        rec_split(factor2)
 
-    rec_split(p, random.randrange(1, 1 << gf.BITS))
+    rec_split(p)
     return sorted(ret)
+
+def trans_build(fn, in_bits):
+    """Given a GF(2)-linear function fn from GF(2)^in_bits, compute the transformation matrix."""
+    return [fn(1 << b) for b in range(in_bits)]
+
+def trans_apply(trans, v):
+    """Given a transformation matrix computed by trans_build, apply it."""
+    r = 0
+    assert v.bit_length() <= len(trans)
+    for i in range(len(trans)):
+        if (v >> i) & 1:
+            r ^= trans[i]
+    return r
 
 def berlekamp_massey(gf, syndromes):
     """The Berklekamp-Massey algorithm.
