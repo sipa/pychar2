@@ -873,7 +873,11 @@ class GF2n:
         return t1
 
 class GF2Table:
-    """Class that optimizes behavior of another field, using exp/log tables."""
+    """Class that optimizes behavior of another field, using exp/log tables.
+
+    The behavior of GF2Table(F) is identical to that of F, but faster, at the
+    cost of a precomputation step performed at construction time.
+    """
 
     def __init__(self, unopt):
         """Construct a GF2Table object given the non-table version of the field."""

@@ -39,6 +39,9 @@ class BCHDecoder:
         self._c = c
         self._trans = trans
 
+    def length(self):
+        return self._length
+
     def correct(self, checksum, erasures=None):
         if checksum == 0: return []
         if erasures is None:
@@ -62,20 +65,20 @@ class BCHDecoder:
         locator = pychar2.poly_mul(self._extfield, err_loc, gamma)
 
         # Locate errors (version using root finding).
-#        locations = list(erasures)
-#        roots = pychar2.poly_findroots(self._extfield, err_loc)
-#        if roots is None: return None
-#        for root in roots:
-#            if root not in self._alphapow: return None
-#            locations.append((-self._alphapow.index(root)) % self._length)
+        locations = list(erasures)
+        roots = pychar2.poly_findroots(self._extfield, err_loc)
+        if roots is None: return None
+        for root in roots:
+            if root not in self._alphapow: return None
+            locations.append((-self._alphapow.index(root)) % self._length)
 
         # Locate errors (version using trial evaluation).
-        locations = list(erasures)
-        for i in range(self._length):
-            if pychar2.poly_eval(self._extfield, err_loc, self._alphapow[i]) == 0:
-                locations.append((-i) % self._length)
-        if len(locations) != pychar2.poly_degree(self._extfield, locator):
-            return None
+#        locations = list(erasures)
+#        for i in range(self._length):
+#            if pychar2.poly_eval(self._extfield, err_loc, self._alphapow[i]) == 0:
+#                locations.append((-i) % self._length)
+#        if len(locations) != pychar2.poly_degree(self._extfield, locator):
+#            return None
 
         # Compute errors.
         ret = []
@@ -91,44 +94,44 @@ class BCHDecoder:
 
         return ret
 
-F = pychar2.GF2n(41)
-modulus = pychar2.poly_make(F, [28,30,1])
-generator = pychar2.poly_make(F, [8,16,11,16,29,4,8,16,0,26,16,30,29,1])
-B = BCHDecoder(F, modulus, 93, 9, 2, generator)
+code_length = 21
+distance = 9
+c_const = 14
+F = pychar2.GF2Table(pychar2.GF2n(67))
+field_size = 1 << F.BITS
+modulus = pychar2.poly_make(F, [57,1])
+generator = pychar2.poly_make(F, [59,11,63,34,36,16,19,11,1])
+degree = pychar2.poly_degree(F, generator)
+B = BCHDecoder(F, modulus, code_length, distance, c_const, generator)
 
 import random
 
-word = [random.randrange(0, 32) for _ in range(50)]
-checksum = bch_checksum(F, generator, word + [0 for _ in range(13)])
-word += reversed([pychar2.vec_get(F, checksum, i) for i in range(13)])
-assert bch_checksum(F, generator, word) == 0
-
 while True:
-    datalen = random.randrange(0, 81)
-    word = [random.randrange(0, 32) for _ in range(datalen)]
-    checksum = bch_checksum(F, generator, word + [0 for _ in range(13)])
-    codeword = word + list(reversed([pychar2.vec_get(F, checksum, i) for i in range(13)]))
-    length = datalen + 13
+    datalen = random.randrange(0, code_length - degree + 1)
+    word = [random.randrange(0, field_size) for _ in range(datalen)]
+    checksum = bch_checksum(F, generator, word + [0 for _ in range(degree)])
+    codeword = word + list(reversed([pychar2.vec_get(F, checksum, i) for i in range(degree)]))
+    length = datalen + degree
     assert bch_checksum(F, generator, codeword) == 0
 
     errword = list(codeword)
     erasures = set()
-    num_error = random.randrange(5)
-    num_erase = random.randrange(0, 9 - 2*num_error)
+    num_error = random.randrange(1 + ((distance - 1) // 2))
+    num_erase = random.randrange(0, distance - 2*num_error)
     assert len(codeword) == length
     assert len(errword) == length
 
-    print("length %i, %i erasures, %i errors" % (datalen+13, num_erase, num_error))
+    print("length %i, %i erasures, %i errors" % (length, num_erase, num_error))
 
     for _ in range(num_erase):
         pos = random.randrange(0, length)
-        err = random.randrange(1, 31)
+        err = random.randrange(1, field_size)
         errword[pos] ^= err
         erasures.add(length - 1 - pos)
 
     for _ in range(num_error):
         pos = random.randrange(0, length)
-        err = random.randrange(1, 31)
+        err = random.randrange(1, field_size)
         errword[pos] ^= err
 
     exp = []

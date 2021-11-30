@@ -85,11 +85,8 @@ def gen_bch(field, min_deg, dist, min_len, report_fn=default_report_fn, max_deg=
         if ext_deg in extfields:
             extfield = extfields[ext_deg]
         else:
-            if ext_deg == 1:
-                extfield = field
-            else:
-                modulus = pychar2.poly_irreducible(field, ext_deg)
-                extfield = pychar2.GF2Ext(field, modulus)
+            modulus = pychar2.poly_irreducible(field, ext_deg)
+            extfield = pychar2.GF2Ext(field, modulus)
             extfields[ext_deg] = extfield
 
         # Construct an element of extfield of order length.
@@ -106,10 +103,7 @@ def gen_bch(field, min_deg, dist, min_len, report_fn=default_report_fn, max_deg=
             if minpolys[n] is not None:
                 return minpolys[n]
             v = pychar2.gf_pow(extfield, len_base, n)
-            if ext_deg == 1:
-                minpoly = v | (1 << field.BITS)
-            else:
-                minpoly = pychar2.gf_minpoly(extfield, v)
+            minpoly = pychar2.gf_minpoly(extfield, v)
             # Store the computed minpoly, for *all* values p for which minpoly(len_base**p)
             # is the same as minpoly(len_base**n).
             p = n
@@ -224,5 +218,5 @@ def gen_bch(field, min_deg, dist, min_len, report_fn=default_report_fn, max_deg=
 
         print("# len=%i ext_deg=%i: %i alphas, %i classes, %i generators" % (length, ext_deg, len(alpha_pows), num_distinct_gens[0], len(gens)))
 
-F = pychar2.GF2Table(pychar2.GF2n(41))
-gen_bch(field=F, min_deg=13, dist=9, min_len=69, dedup_iso=False)
+F = pychar2.GF2Table(pychar2.GF2n(67))
+gen_bch(field=F, min_deg=8, dist=9, min_len=20, dedup_iso=False)
