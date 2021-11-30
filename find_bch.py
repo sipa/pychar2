@@ -218,5 +218,5 @@ def gen_bch(field, min_deg, dist, min_len, report_fn=default_report_fn, max_deg=
 
         print("# len=%i ext_deg=%i: %i alphas, %i classes, %i generators" % (length, ext_deg, len(alpha_pows), num_distinct_gens[0], len(gens)))
 
-F = pychar2.GF2Table(pychar2.GF2n(67))
-gen_bch(field=F, min_deg=8, dist=9, min_len=20, dedup_iso=False)
+F = pychar2.GF2Table(pychar2.GF2n(41))
+gen_bch(field=F, min_deg=2, dist=3, min_len=31, dedup_iso=False)

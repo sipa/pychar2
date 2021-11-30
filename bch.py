@@ -15,7 +15,9 @@ class BCHDecoder:
         degree = pychar2.poly_degree(field, generator)
         extfield = pychar2.GF2Ext(field, modulus)
         extgen = pychar2.poly_lift(extfield, generator)
-        alpha = 1 << field.BITS
+        # Alpha is x mod modulus; usually that's just x, but for extdeg=1 fields,
+        # x is actually outside of the valid range of field element.
+        alpha = pychar2.poly_mod(field, 1 << field.BITS, modulus)
         assert pychar2.gf_hasorder(extfield, alpha, length)
         alphapow = [pychar2.gf_pow(extfield, alpha, i) for i in range(length)]
         for i in range(dist-1):
