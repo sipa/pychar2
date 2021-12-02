@@ -152,33 +152,26 @@ def gen_bch(field, min_deg, dist, min_len, report_fn=default_report_fn, max_deg=
             for factor in set(minpoly(alpha_pow * (c + i)) for i in range(dist - 1)):
                 gen = pychar2.poly_mul(field, gen, factor)
             if gen in gens: return
-            # Compute the generator for (-alpha_pow, c).
-            geni, _ = pychar2.poly_monic(field, pychar2.poly_reverse(field, gen))
-            # Iterate over i to find the generators for (+- alpha_pow*2^i, c), adding all of them
+            # Iterate over i to find the generators for (alpha_pow*2^i, c), adding all of them
             # to the gens set for deduplication.
             num_distinct_gens[0] += 1
             for i in range(field.BITS):
                 if i == 0 or not dedup_iso: output_mgen(alpha_pow, c, gen)
-                if not dedup_iso and geni != gen: output_mgen(length - alpha_pow, c, geni)
                 gens.add(gen)
-                gens.add(geni)
                 gen = pychar2.poly_square_coef(field, gen)
-                geni = pychar2.poly_square_coef(field, geni)
                 alpha_pow = (alpha_pow << 1) % length
 
         # Determine which powers of alpha result in distinct minpolys and order length.
         # Multiplying alpha_pow with (1 << field.BITS) does not change the minpoly.
         # Multiplying alpha_pow with 2 corresponds to squaring all coefficients of the
         # minpoly, and of the generators that come out (which are distinct but equivalent).
-        # The same is true for negating alpha_pow, which reverses the order of
-        # coefficients of minpoly and the generators that come out.
         # We avoid processing alpha_pows with equivalent generators here, and print all
         # variants if desired in output_dedup.
         # The list of interesting alpha_pows.
         alpha_pows = []
         # Bitvector of alpha_pows and equivalent ones which have been added already.
         alpha_done = 0
-        for alpha_pow in range(1, (length + 1) // 2):
+        for alpha_pow in range(1, length):
             # Skip powers of alpha whose minpoly we have already added.
             if (alpha_done >> alpha_pow) & 1: continue
             # Skip powers of len_base with order different from length.
@@ -188,16 +181,13 @@ def gen_bch(field, min_deg, dist, min_len, report_fn=default_report_fn, max_deg=
             # Add it, and all its equivalent powers, to the alpha_done bitset.
             pp = alpha_pow
             while True:
-                if pp < (length + 1) // 2: alpha_done |= (1 << pp)
+                alpha_done |= (1 << pp)
                 pp = (pp << 1) % length
                 if pp == alpha_pow: break
 
-        # Iterate over all c values. Only [c,c+dist-2] intervals are searched which contain a value
-        # in [0,c/2]. Mirroring the interval around c/2 corresponds to negating all the len_base
-        # powers, which results in distinct but equivalent generators. output_dedup will output
-        # both if desired, so we can avoid the double work here.
+        # Iterate over all c values.
         found = False
-        for c in range(2 - dist, (length + 1) // 2):
+        for c in range(0, length):
             first = True
             for alpha_pow in alpha_pows:
                 if first:
